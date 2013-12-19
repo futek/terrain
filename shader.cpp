@@ -4,7 +4,32 @@
 #include <fstream>
 #include <iostream>
 
-const char *readFile(const char *path) {
+bool Shader::load() {
+	return link();
+}
+
+GLuint Shader::getUniformLocation(const char* name) {
+	GLuint location = glGetUniformLocation(shaderProgram, name);
+	if (location == GL_INVALID_INDEX) {
+		std::printf("shader did not contain '%s' uniform\n", name);
+	}
+	return location;
+}
+
+GLuint Shader::getAttribLocation(const char* name) {
+	GLuint location = glGetAttribLocation(shaderProgram, name);
+	if (location == GL_INVALID_INDEX) {
+		std::printf("shader did not contain '%s' uniform\n", name);
+	}
+	return location;
+}
+
+void Shader::use() {
+	glUseProgram(shaderProgram);
+}
+
+
+const char* Shader::read(const char *path) {
 	std::ifstream file(path, std::ios::binary);
 
 	file.seekg(0, std::ios::end);
@@ -21,12 +46,14 @@ const char *readFile(const char *path) {
 	return source;
 }
 
-bool compileShader(GLuint* shader, GLuint type, const char *path) {
-	const char *source = readFile(path);
+bool Shader::compile(GLuint* shader, GLuint type, const char *path) {
+	const char* source = read(path);
 
 	*shader = glCreateShader(type);
 	glShaderSource(*shader, 1, &source, NULL);
 	glCompileShader(*shader);
+
+	delete[] source;
 
 	GLint status;
 	glGetShaderiv(*shader, GL_COMPILE_STATUS, &status);
@@ -42,33 +69,36 @@ bool compileShader(GLuint* shader, GLuint type, const char *path) {
 		return false;
 	}
 
-	delete[] source;
-
 	return true;
 }
 
-bool createShaderProgram(GLuint* program, std::string vertexShaderPath, std::string fragmentShaderPath, std::string outputAttribName) {
-	*program = glCreateProgram();
-
+bool Shader::link() {
 	GLuint vertexShader, fragmentShader;
-	compileShader(&vertexShader, GL_VERTEX_SHADER, vertexShaderPath.c_str());
-	compileShader(&fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderPath.c_str());
+	bool success;
 
-	glAttachShader(*program, vertexShader);
-	glAttachShader(*program, fragmentShader);
+	success = compile(&vertexShader, GL_VERTEX_SHADER, vertexShaderPath.c_str());
+	if (!success) return false;
 
-	glBindFragDataLocation(*program, 0, outputAttribName.c_str());
+	success = compile(&fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderPath.c_str());
+	if (!success) return false;
 
-	glLinkProgram(*program);
+	shaderProgram = glCreateProgram();
+
+	glAttachShader(shaderProgram, vertexShader);
+	glAttachShader(shaderProgram, fragmentShader);
+
+	glBindFragDataLocation(shaderProgram, 0, outputAttribName.c_str());
+
+	glLinkProgram(shaderProgram);
 
 	GLint status;
-	glGetProgramiv(*program, GL_LINK_STATUS, &status);
+	glGetProgramiv(shaderProgram, GL_LINK_STATUS, &status);
 	if (!status) {
 		std::cerr << "shader program failed to link:" << std::endl;
 		GLint logSize;
-		glGetProgramiv(*program, GL_INFO_LOG_LENGTH, &logSize);
+		glGetProgramiv(shaderProgram, GL_INFO_LOG_LENGTH, &logSize);
 		char *logMsg = new char[logSize];
-		glGetProgramInfoLog(*program, logSize, NULL, logMsg);
+		glGetProgramInfoLog(shaderProgram, logSize, NULL, logMsg);
 		std::cerr << logMsg << std::endl;
 		delete[] logMsg;
 

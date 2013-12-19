@@ -21,10 +21,27 @@ GLFWwindow* window;
 int width = WINDOW_WIDTH, height = WINDOW_HEIGHT;
 bool fullscreen = false;
 
-GLuint shaderProgram;
-GLuint positionAttrib;
-GLuint projectionMatrixUniform, modelViewMatrixUniform, timeUniform, debugUniform, playerPositionUniform, fogColorUniform, viewDistanceUniform;
-GLuint vertexArrayObject;
+Shader terrainShader("shaders/terrain.vert", "shaders/terrain.frag", "outColor");
+struct terrainShaderUniform {
+	GLuint projectionMatrix;
+	GLuint modelViewMatrix;
+	GLuint time;
+	GLuint playerPosition;
+	GLuint fogColor;
+	GLuint viewDistance;
+} terrainShaderUniform;
+GLuint terrainVertexArrayObject;
+
+Shader waterShader("shaders/water.vert", "shaders/water.frag", "outColor");
+struct waterShaderUniform {
+	GLuint projectionMatrix;
+	GLuint modelViewMatrix;
+	GLuint time;
+	GLuint playerPosition;
+	GLuint fogColor;
+	GLuint viewDistance;
+} waterShaderUniform;
+GLuint waterVertexArrayObject;
 
 mat4 projectionMatrix, modelViewMatrix;
 
@@ -32,11 +49,11 @@ struct vertex {
 	vec3 position;
 };
 
-const int gridWidth = 3000, gridHeight = 3000;
+const int gridWidth = 1500, gridHeight = 1500;
 const GLuint numberOfVertices = gridWidth * gridHeight;
 vertex vertices[numberOfVertices];
-const GLuint numberOfIndicies = numberOfVertices + (gridWidth - 1) * (gridHeight - 2);
-int indicies[numberOfIndicies];
+const GLuint numberOfIndices = numberOfVertices + (gridWidth - 1) * (gridHeight - 2);
+int indices[numberOfIndices];
 
 vec3 fogColor = vec3(225.0f, 240.0f, 245.0f) / 255.0f;
 float viewDistance = min(gridWidth, gridHeight) / 2.0;
@@ -52,47 +69,38 @@ int keyTabPrev = 0;
 
 void initialize();
 
-GLuint setupUniform(const char* name) {
-	GLuint location = glGetUniformLocation(shaderProgram, name);
-	if (location == GL_INVALID_INDEX) {
-		std::printf("shader did not contain '%s' uniform\n", name);
-	}
-	return location;
-}
-
-GLuint setupAttrib(const char* name) {
-	GLuint location = glGetAttribLocation(shaderProgram, name);
-	if (location == GL_INVALID_INDEX) {
-		std::printf("shader did not contain '%s' attribute\n", name);
-	}
-	return location;
-}
-
 bool loadShaders() {
-	GLuint program;
+	bool success;
 
-	bool success = createShaderProgram(&program, "shaders/terrain.vert", "shaders/terrain.frag", "outColor");
+	success = terrainShader.load();
 	if (!success) return false;
+	terrainShader.use();
+	terrainShaderUniform.projectionMatrix = terrainShader.getUniformLocation("projection");
+	terrainShaderUniform.modelViewMatrix  = terrainShader.getUniformLocation("modelView");
+	terrainShaderUniform.time             = terrainShader.getUniformLocation("time");
+	terrainShaderUniform.playerPosition   = terrainShader.getUniformLocation("playerPosition");
+	terrainShaderUniform.fogColor         = terrainShader.getUniformLocation("fogColor");
+	terrainShaderUniform.viewDistance     = terrainShader.getUniformLocation("viewDistance");
+	glUseProgram(0);
 
-	shaderProgram = program;
-	glUseProgram(shaderProgram);
-
-	projectionMatrixUniform = setupUniform("projection");
-	modelViewMatrixUniform = setupUniform("modelView");
-	timeUniform = setupUniform("time");
-	debugUniform = setupUniform("debug");
-	playerPositionUniform = setupUniform("playerPosition");
-	fogColorUniform = setupUniform("fogColor");
-	viewDistanceUniform = setupUniform("viewDistance");
-
-	positionAttrib = setupAttrib("position");
+	success = waterShader.load();
+	if (!success) return false;
+	waterShader.use();
+	waterShaderUniform.projectionMatrix = waterShader.getUniformLocation("projection");
+	waterShaderUniform.modelViewMatrix  = waterShader.getUniformLocation("modelView");
+	waterShaderUniform.time             = waterShader.getUniformLocation("time");
+	waterShaderUniform.playerPosition   = waterShader.getUniformLocation("playerPosition");
+	waterShaderUniform.fogColor         = waterShader.getUniformLocation("fogColor");
+	waterShaderUniform.viewDistance     = waterShader.getUniformLocation("viewDistance");
+	glUseProgram(0);
 
 	return true;
 }
 
 void loadData() {
+	// terrain data
 	{
-		GLuint vertexBufferObject, elementBufferObject;
+		terrainShader.use();
 
 		int index = 0;
 		for (int j = 0; j < gridHeight; j++) {
@@ -106,38 +114,87 @@ void loadData() {
 		for (int j = 0; j < gridHeight - 1; j++) {
 			if ((j & 1) == 0) {
 				for (int i = 0; i < gridWidth; i++) {
-					indicies[index++] = i + j * gridWidth;
-					indicies[index++] = i + (j + 1) * gridWidth;
+					indices[index++] = i + j * gridWidth;
+					indices[index++] = i + (j + 1) * gridWidth;
 				}
 			}
 			else {
 				for (int i = gridWidth - 1; i > 0; i--) {
-					indicies[index++] = i + (j + 1) * gridWidth;
-					indicies[index++] = i - 1 + j * gridWidth;
+					indices[index++] = i + (j + 1) * gridWidth;
+					indices[index++] = i - 1 + j * gridWidth;
 				}
 			}
 		}
 
-		glGenVertexArrays(1, &vertexArrayObject);
-		glBindVertexArray(vertexArrayObject);
+		glGenVertexArrays(1, &terrainVertexArrayObject);
+		glBindVertexArray(terrainVertexArrayObject);
 
+		GLuint vertexBufferObject;
 		glGenBuffers(1, &vertexBufferObject);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferObject);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * numberOfVertices, vertices, GL_STATIC_DRAW);
 
+		GLuint elementBufferObject;
 		glGenBuffers(1, &elementBufferObject);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementBufferObject);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * numberOfIndicies, indicies, GL_STATIC_DRAW);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * numberOfIndices, indices, GL_STATIC_DRAW);
 
 		size_t offset = 0;
-		glEnableVertexAttribArray(positionAttrib);
-		glVertexAttribPointer(positionAttrib, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *) offset);
+		GLuint attrib;
+
+		attrib = terrainShader.getAttribLocation("position");
+		glEnableVertexAttribArray(attrib);
+		glVertexAttribPointer(attrib, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *) offset);
 		offset += sizeof(vec3);
 
 		glBindVertexArray(0);
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+		glUseProgram(0);
+	}
+
+	// water data
+	{
+		waterShader.use();
+
+		glGenVertexArrays(1, &waterVertexArrayObject);
+		glBindVertexArray(waterVertexArrayObject);
+
+		static vertex vertices[4] = {
+			vec3(         0.0f, 0.0f,           0.0f) - vec3(gridWidth / 2.0, 0.0, gridHeight / 2.0),
+			vec3(gridWidth - 1, 0.0f,           0.0f) - vec3(gridWidth / 2.0, 0.0, gridHeight / 2.0),
+			vec3(         0.0f, 0.0f, gridHeight - 1) - vec3(gridWidth / 2.0, 0.0, gridHeight / 2.0),
+			vec3(gridWidth - 1, 0.0f, gridHeight - 1) - vec3(gridWidth / 2.0, 0.0, gridHeight / 2.0),
+		};
+
+		GLuint vertexBufferObject;
+		glGenBuffers(1, &vertexBufferObject);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferObject);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * 4, vertices, GL_STATIC_DRAW);
+
+		static GLuint indices[4] = {0, 2, 1, 3};
+
+		GLuint elementBufferObject;
+		glGenBuffers(1, &elementBufferObject);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementBufferObject);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * 4, indices, GL_STATIC_DRAW);
+
+		int offset = 0;
+		GLuint attrib;
+
+		attrib = waterShader.getAttribLocation("position");
+		glEnableVertexAttribArray(attrib);
+		glVertexAttribPointer(attrib, 3, GL_FLOAT, GL_FALSE, sizeof(vertex), (const GLvoid *) offset);
+		offset += sizeof(vec3);
+
+		glBindVertexArray(0);
+
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+		glUseProgram(0);
 	}
 }
 
@@ -227,6 +284,8 @@ void createWindow() {
 
 	// update perspective transformation
 	framebufferSizeCallback(window, width, height);
+
+	glfwSwapInterval(1); // vsync on
 
 	initialize();
 }
@@ -343,25 +402,55 @@ void initialize() {
 
 	glEnable(GL_DEPTH_TEST);
 
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_BLEND);
+
 	glClearColor(fogColor.r, fogColor.g, fogColor.b, 1.0);
-	glUniform3fv(fogColorUniform, 1, value_ptr(fogColor));
-	glUniform1f(viewDistanceUniform, viewDistance);
+
+	// upload uniforms
+	terrainShader.use();
+	glUniform3fv(terrainShaderUniform.fogColor, 1, value_ptr(fogColor));
+	glUniform1f(terrainShaderUniform.viewDistance, viewDistance);
+	glUseProgram(0);
+
+	waterShader.use();
+	glUniform3fv(waterShaderUniform.fogColor, 1, value_ptr(fogColor));
+	glUniform1f(waterShaderUniform.viewDistance, viewDistance);
+	glUseProgram(0);
 }
 
 void render(double time) {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	glUniformMatrix4fv(projectionMatrixUniform, 1, GL_FALSE, value_ptr(projectionMatrix));
-	glUniformMatrix4fv(modelViewMatrixUniform, 1, GL_FALSE, value_ptr(modelViewMatrix));
-	glUniform1f(timeUniform, (float) time);
-	glUniform3fv(playerPositionUniform, 1, value_ptr(player.position));
-	
+	terrainShader.use();
+
+	// upload terrain shader uniforms
+	glUniformMatrix4fv(terrainShaderUniform.projectionMatrix, 1, GL_FALSE, value_ptr(projectionMatrix));
+	glUniformMatrix4fv(terrainShaderUniform.modelViewMatrix, 1, GL_FALSE, value_ptr(modelViewMatrix));
+	glUniform1f(terrainShaderUniform.time, (float) time);
+	glUniform3fv(terrainShaderUniform.playerPosition, 1, value_ptr(player.position));
+
 	// draw terrain
-	//glUseProgram(shaderProgram);
-	glBindVertexArray(vertexArrayObject);
-	glDrawElements(GL_TRIANGLE_STRIP, numberOfIndicies, GL_UNSIGNED_INT, 0);
+	glBindVertexArray(terrainVertexArrayObject);
+	glDrawElements(GL_TRIANGLE_STRIP, numberOfIndices, GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
-	//glUseProgram(0);
+
+	glUseProgram(0);
+
+	waterShader.use();
+
+	// upload water shader uniforms
+	glUniformMatrix4fv(waterShaderUniform.projectionMatrix, 1, GL_FALSE, value_ptr(projectionMatrix));
+	glUniformMatrix4fv(waterShaderUniform.modelViewMatrix, 1, GL_FALSE, value_ptr(modelViewMatrix));
+	glUniform1f(waterShaderUniform.time, (float) time);
+	glUniform3fv(waterShaderUniform.playerPosition, 1, value_ptr(player.position));
+
+	// draw water
+	glBindVertexArray(waterVertexArrayObject);
+	glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_INT, 0);
+	glBindVertexArray(0);
+
+	glUseProgram(0);
 
 	errorCheck("render exit");
 }
@@ -376,8 +465,15 @@ int main(int argc, char *argv[]) {
 	setup();
 	createWindow();
 
+	//double previousTime = 0;
+
 	while (!glfwWindowShouldClose(window)) {
 		double time = glfwGetTime();
+
+		//double frametime = time - previousTime;
+		//double fps = 1.0 / frametime;
+		//std::printf("frametime: %.10fms, (fps: %.2f)\n", frametime * 1000.0, fps);
+		//previousTime = time;
 
 		update(time);
 		render(time);

@@ -15,12 +15,13 @@ uniform mat4 projection;
 uniform mat4 modelView;
 uniform vec3 playerPosition;
 
-// inspired by http://www.iquilezles.org/www/articles/morenoise/morenoise.htm
+const int octaves = 7;
 
 float hash(float n) {
     return fract(sin(n) * 43758.5453123);
 }
 
+// inspired by http://www.iquilezles.org/www/articles/morenoise/morenoise.htm
 vec3 noised(vec2 x) {
     vec2 p = floor(x);
     vec2 f = fract(x);
@@ -51,7 +52,7 @@ vec3 terrain(vec2 p) {
     float f = 0.0;
     vec2 d = vec2(0.0);
     
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < octaves; i++) {
         vec3 n = noised(p);
         d += n.yz;
         f += w * n.x / (1.0 + dot(d, d));
@@ -69,16 +70,16 @@ vec3 terrain2(vec2 p) {
 void main() {
     // floor -> avoid wiggling
     // 2.0 -> jump 2 vertices at a time to retain same mesh geometry
-    vec3 p = position.xyz + floor(playerPosition / 2.0) * 2.0;
+    vec2 p = position.xz + floor(playerPosition.xz / 2.0) * 2.0;
 
     float scale = 200.0;
     float delta = -50.0;
 
-    vec3 t = terrain(p.xz / scale);
+    vec3 t = terrain(p.xy / scale);
     float height = t.x * scale + delta; // height
     vec2 d = t.yz; // derivatives
 
-    vWorldPosition = vec3(p.x, height, p.z);
+    vWorldPosition = vec3(p.x, height, p.y);
     vWorldTangent  = normalize(vec3(0.0, d.y, 1.0));
     vWorldBinormal =  normalize(vec3(1.0, d.x, 0.0));
     vWorldNormal   = cross(vWorldTangent, vWorldBinormal);
